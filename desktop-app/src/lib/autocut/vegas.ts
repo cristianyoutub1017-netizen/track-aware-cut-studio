@@ -1,4 +1,6 @@
 import { cropRect, sourceToTimeline } from "./core";
+import { focusAt, zoomAt } from "./player";
+import { subLane } from "./types";
 import type { ColorGrade, Segment, Settings, Sfx, Subtitle, SubTemplate, TrackNo, ZoomPlan } from "./types";
 import { TRACK_NAMES } from "./subtitles";
 
@@ -16,38 +18,40 @@ export interface ExportInput {
   settings: Settings;
 }
 
-const smooth = (p: number) => p * p * (3 - 2 * p);
+/** Los subtítulos de juego/Discord van un poco más arriba en pantalla para no pisar los tuyos. */
+export const OTHERS_LIFT = 0.14;
 const n3 = (x: number) => +x.toFixed(3);
 
-// Keyframes [t, x, y, w, h] relativos al evento, para cada segmento.
+// Keyframes [t, x, y, w, h] relativos al evento: un keyframe por segundo (seguimiento constante del encuadre).
 export function cameraKeyframes(seg: Segment, z: ZoomPlan | undefined, subs: Subtitle[], W: number, H: number): number[] {
   const len = seg.end - seg.start;
-  const base = (t: number) => (z && z.enabled ? z.from + (z.to - z.from) * smooth(Math.min(1, Math.max(0, t / len))) : 1);
-  const cx = z?.enabled ? z.cx : 0.5;
-  const cy = z?.enabled ? z.cy : 0.5;
-  const pts = new Map<number, number>();
-  pts.set(0, base(0));
+  const punchAt = (rel: number) => subs.some((s) => s.punch && seg.start + rel >= s.start && seg.start + rel <= s.end);
+  const at = (rel: number) => {
+    let zoom = zoomAt(z, seg, rel);
+    if (punchAt(rel)) zoom *= 1.3;
+    const [cx, cy] = z?.enabled ? focusAt(z, rel) : [0.5, 0.5];
+    return cropRect(cx, cy, zoom, W, H);
+  };
+  const times = new Set<number>([0]);
   if (z?.enabled) {
-    pts.set(n3(len / 2), base(len / 2));
-    pts.set(n3(len), base(len));
+    for (let t = 1; t < len; t += 1) times.add(n3(t));
+    times.add(n3(len));
   }
   for (const s of subs) {
     if (!s.punch || s.start < seg.start || s.start >= seg.end) continue;
     const a = s.start - seg.start;
     const b = Math.min(len, s.end - seg.start);
-    if (a > 0.06) pts.set(n3(a - 0.05), base(a - 0.05));
-    pts.set(n3(a + 0.08), base(a) * 1.3);
-    pts.set(n3(b), base(b) * 1.3);
-    if (b + 0.15 < len) pts.set(n3(b + 0.15), base(b + 0.15));
+    if (a > 0.06) times.add(n3(a - 0.05));
+    times.add(n3(a + 0.08));
+    times.add(n3(b));
+    if (b + 0.15 < len) times.add(n3(b + 0.15));
   }
-  return [...pts.entries()]
-    .sort((x, y) => x[0] - y[0])
-    .flatMap(([t, zoom]) => [t, ...cropRect(cx, cy, zoom, W, H)]);
+  return [...times].filter((t) => t <= len).sort((x, y) => x - y).flatMap((t) => [t, ...at(t).map(n3)]);
 }
 
 // Animación del subtítulo con keyframes de pan/crop: [t, x, y, w, h]
-export function subtitleMotion(t: SubTemplate, len: number, W: number, H: number): number[] {
-  const yOff = t.position === "bottom" ? -0.32 * H : t.position === "top" ? 0.32 * H : 0;
+export function subtitleMotion(t: SubTemplate, len: number, W: number, H: number, lift = 0): number[] {
+  const yOff = (t.position === "bottom" ? -0.32 * H : t.position === "top" ? 0.32 * H : 0) + lift * H;
   const box = (scale: number, dx = 0, dy = 0) => {
     const w = W / scale, h = H / scale;
     return [n3((W - w) / 2 + dx), n3((H - h) / 2 + yOff + dy), n3(w), n3(h)];
@@ -116,7 +120,7 @@ export function vegasScript(x: ExportInput): string {
       const pt = Math.round((t.size * H) / 100 * 0.75);
       const rtf = `{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 ${t.font};}}{\\colortbl;\\red${r}\\green${g}\\blue${b};}\\qc\\cf1\\f0\\fs${pt * 2} ${rtfText(text)}\\par}`;
       const len = Math.max(0.1, s.end - s.start);
-      return `new Sub(${s.track}, ${pos}, ${n3(len)}, "${esc(rtf)}", ${r / 255}, ${g / 255}, ${b / 255}, ${sr / 255}, ${sg / 255}, ${sb / 255}, ${(t.strokeWidth / 100).toFixed(3)}, new double[]{${subtitleMotion(t, len, W, H).join(",")}})`;
+      return `new Sub(${s.track}, ${pos}, ${n3(len)}, "${esc(rtf)}", ${r / 255}, ${g / 255}, ${b / 255}, ${sr / 255}, ${sg / 255}, ${sb / 255}, ${(t.strokeWidth / 100).toFixed(3)}, new double[]{${subtitleMotion(t, len, W, H, subLane(s.track) === "otros" ? OTHERS_LIFT : 0).join(",")}})`;
     })
     .filter(Boolean)
     .join(",\n      ");
@@ -247,21 +251,38 @@ public class EntryPoint {
     } catch (Exception ex) { avisos.Add("Color: " + ex.Message); }
   }
 
+  // Busca el generador "Títulos y texto" por su identificador interno (vale para Vegas en cualquier idioma).
+  static PlugInNode FindTitles(PlugInNode root) {
+    string[] ids = { "{Svfx:com.vegascreativesoftware:titlesandtext}", "{Svfx:com.sonycreativesoftware:titlesandtext}", "{Svfx:com.magix:titlesandtext}" };
+    foreach (string id in ids) { try { PlugInNode n = root.GetChildByUniqueID(id); if (n != null) return n; } catch {} }
+    return Search(root);
+  }
+  static PlugInNode Search(PlugInNode root) {
+    foreach (PlugInNode n in root) {
+      if (n.IsContainer) { PlugInNode r = Search(n); if (r != null) return r; continue; }
+      string id = (n.UniqueID ?? "").ToLowerInvariant();
+      string nm = (n.Name ?? "").ToLowerInvariant();
+      if (id.Contains("titlesandtext") || nm.Contains("titles & text") || nm.Contains("titles and text") || nm.Contains("títulos y texto") || nm.Contains("titulos y texto") || nm.Contains("títulos y textos")) return n;
+    }
+    return null;
+  }
+
   static void AddSubs(Vegas vegas) {
     if (SUBS.Length == 0) return;
-    PlugInNode gen = vegas.Generators.GetChildByName("VEGAS Titles & Text");
-    if (gen == null) { avisos.Add("No encuentro el generador 'VEGAS Titles & Text'"); return; }
-    Dictionary<int, VideoTrack> tracks = new Dictionary<int, VideoTrack>();
+    PlugInNode gen = FindTitles(vegas.Generators);
+    if (gen == null) { avisos.Add("No encuentro el generador de Títulos y texto de Vegas: los subtítulos no se han podido crear"); return; }
+    // Dos pistas de subtítulos arriba del todo: primero tu voz, debajo juego/Discord.
+    VideoTrack otros = new VideoTrack(0, "Subtítulos juego / Discord");
+    vegas.Project.Tracks.Add(otros);
+    VideoTrack voz = new VideoTrack(0, "Subtítulos " + AUDIO_NAMES[0]);
+    vegas.Project.Tracks.Add(voz);
+    int ok = 0;
     foreach (Sub s in SUBS) {
-      if (!tracks.ContainsKey(s.Track)) {
-        VideoTrack t = new VideoTrack(0, "Subtítulos " + AUDIO_NAMES[s.Track - 1]);
-        vegas.Project.Tracks.Add(t);
-        tracks[s.Track] = t;
-      }
       try {
         Media m = new Media(gen);
+        VideoTrack tr = s.Track == 1 ? voz : otros;
         VideoEvent ev = new VideoEvent(Timecode.FromSeconds(s.Pos), Timecode.FromSeconds(s.Len));
-        tracks[s.Track].Events.Add(ev);
+        tr.Events.Add(ev);
         ev.AddTake(m.GetVideoStreamByIndex(0));
         OFXEffect fx = m.Generator.OFXEffect;
         OFXStringParameter txt = fx.FindParameterByName("Text") as OFXStringParameter;
@@ -271,8 +292,10 @@ public class EntryPoint {
         SetD(fx, "OutlineWidth", s.SW);
         fx.AllParametersChanged();
         Motion(ev, s.K);
+        ok++;
       } catch (Exception ex) { avisos.Add("Subtítulo en " + s.Pos.ToString("0.00") + "s: " + ex.Message); }
     }
+    if (ok == 0) avisos.Add("Ningún subtítulo se ha podido crear");
   }
 
   static void AddSfx(Vegas vegas) {
