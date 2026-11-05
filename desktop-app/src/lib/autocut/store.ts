@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { buildTurns, computeKeepSegments, planZoom, uid, voiceRanges } from "./core";
+import { buildTurns, computeKeepSegments, followPath, planZoom, uid, voiceRanges } from "./core";
+import { usePlayer } from "./player";
 import { NEUTRAL_GRADE } from "./media";
 import { BUILT_IN_TEMPLATES, DEFAULT_TRACK_COLORS, DEFAULT_TRACK_ENABLED, buildSubtitles } from "./subtitles";
-import type { AnalysisFile, ColorGrade, GroupOverride, Segment, Settings, Sfx, Subtitle, SubTemplate, ZoomPlan } from "./types";
+import type { Preset, Word, AnalysisFile, ColorGrade, GroupOverride, Segment, Settings, Sfx, Subtitle, SubTemplate, ZoomPlan } from "./types";
 
 export const DEFAULT_SETTINGS: Settings = {
   minSilence: 1.2,
@@ -56,6 +57,11 @@ interface State extends Snapshot {
   duration: number;
   selection: Selection;
   past: Snapshot[];
+  presets: Preset[];
+  savePreset: (name: string) => void;
+  loadPreset: (id: string) => void;
+  deletePreset: (id: string) => void;
+  setWords: (w: Word[]) => void;
   setSettings: (p: Partial<Settings>) => void;
   setVideo: (url: string, name: string, meta: { duration: number; width: number; height: number }) => void;
   setVideoPath: (p: string) => void;
@@ -93,6 +99,22 @@ export const useEditor = create<State>()(
       sfx: [],
       selection: null,
       past: [],
+      presets: [],
+      savePreset: (name) =>
+        set((s) => ({ presets: [...s.presets.filter((p) => p.name !== name), { id: uid(), name, settings: s.settings, color: s.color, muted: usePlayer.getState().muted }] })),
+      loadPreset: (id) => {
+        const p = get().presets.find((x) => x.id === id);
+        if (!p) return;
+        set({ settings: { ...DEFAULT_SETTINGS, ...p.settings }, color: p.color });
+        usePlayer.getState().setMuted(p.muted);
+      },
+      deletePreset: (id) => set((s) => ({ presets: s.presets.filter((p) => p.id !== id) })),
+      setWords: (words) => {
+        const a = get().analysis;
+        if (!a) return;
+        set({ analysis: { ...a, words } });
+        get().rebuildSubtitles();
+      },
       setSettings: (p) => set((s) => ({ settings: { ...s.settings, ...p } })),
       setVideo: (url, name, meta) =>
         set((s) => ({
@@ -111,7 +133,10 @@ export const useEditor = create<State>()(
         const me = r(1);
         const other = [...r(3), ...(c.useGameVoice ? r(2) : [])];
         const segments = computeKeepSegments([...me, ...other], a.duration || duration, c);
-        const zooms = planZoom(segments, buildTurns(me, other), c);
+        const zooms = planZoom(segments, buildTurns(me, other), c).map((z) => {
+          const seg = segments.find((x) => x.id === z.segmentId)!;
+          return z.enabled ? { ...z, follow: followPath(seg, me, other, z) } : z;
+        });
         const subtitles = c.subsEnabled ? buildSubtitles(a.words, segments, c, get().overrides) : [];
         const sfx: Sfx[] = c.sfxAuto
           ? subtitles.filter((s) => s.shout).map((s) => ({ id: uid(), at: s.start, name: c.sfxShoutName, path: c.sfxShoutPath }))
@@ -153,6 +178,8 @@ export const useEditor = create<State>()(
         zooms: s.zooms,
         subtitles: s.subtitles,
         sfx: s.sfx,
+        analysis: s.analysis,
+        presets: s.presets,
       }),
     },
   ),
