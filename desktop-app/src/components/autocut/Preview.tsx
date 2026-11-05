@@ -6,10 +6,20 @@ import { usePlayer, viewAt } from "@/lib/autocut/player";
 import { cssFilter } from "@/lib/autocut/media";
 import { editedDuration, fmt, sourceToTimeline } from "@/lib/autocut/core";
 import { SubtitleView } from "./SubtitleView";
+import { OTHERS_LIFT } from "@/lib/autocut/vegas";
+import { subLane, type TrackNo } from "@/lib/autocut/types";
+
+// URL para que el programa sirva un archivo del PC (mismo servidor que el vídeo).
+const mediaUrl = (videoUrl: string, file: string) => {
+  try { return `${new URL(videoUrl).origin}/__media?p=${encodeURIComponent(file)}`; } catch { return ""; }
+};
 
 export function Preview() {
-  const { videoUrl, segments, zooms, subtitles, templates, settings, color, width, height } = useEditor();
-  const { time, playing, setVideo, setTime, setPlaying, seek } = usePlayer();
+  const { videoUrl, segments, zooms, subtitles, templates, settings, color, width, height, analysis } = useEditor();
+  const { time, playing, setVideo, setTime, setPlaying, seek, muted } = usePlayer();
+  const audios = useRef<Partial<Record<TrackNo, HTMLAudioElement | null>>>({});
+  const trackFiles = videoUrl?.startsWith("http") ? Object.entries(analysis?.trackFiles ?? {}) : [];
+  const multi = trackFiles.length > 0;
   const ref = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const outer = useRef<HTMLDivElement>(null);
@@ -48,6 +58,13 @@ export function Preview() {
           }
         }
         setTime(t);
+        // Las pistas separadas suenan sincronizadas con el vídeo.
+        for (const a of Object.values(audios.current)) {
+          if (!a) continue;
+          if (Math.abs(a.currentTime - t) > 0.15) a.currentTime = t;
+          if (v.paused && !a.paused) a.pause();
+          else if (!v.paused && a.paused) a.play().catch(() => {});
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -83,12 +100,16 @@ export function Preview() {
               className="absolute inset-0 h-full w-full"
               style={{ transformOrigin: "0 0", transform: `scale(${view.zoom}) translate(${-view.tx}%, ${-view.ty}%)`, filter: cssFilter(color) }}
               onClick={toggle}
+              muted={multi}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">Abre una grabación para empezar</div>
           )}
+          {trackFiles.map(([k, f]) => (
+            <audio key={k} ref={(el) => { audios.current[+k as TrackNo] = el; }} src={mediaUrl(videoUrl!, f)} preload="auto" muted={muted[+k as TrackNo]} />
+          ))}
           {active.map((s) => (
-            <SubtitleView key={s.id} animKey={s.id} template={tpl(s.templateId)} color={tpl(s.templateId).useTrackColor ? settings.trackColors[s.track] : tpl(s.templateId).fill} text={s.text} stageHeight={stageH} duration={s.end - s.start} />
+            <SubtitleView key={s.id} lift={subLane(s.track) === "otros" ? OTHERS_LIFT : 0} animKey={s.id} template={tpl(s.templateId)} color={tpl(s.templateId).useTrackColor ? settings.trackColors[s.track] : tpl(s.templateId).fill} text={s.text} stageHeight={stageH} duration={s.end - s.start} />
           ))}
         </div>
       </div>
