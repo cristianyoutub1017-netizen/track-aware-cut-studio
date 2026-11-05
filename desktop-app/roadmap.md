@@ -9,3 +9,9 @@
 - [x] Script de transcripción local (faster-whisper en la GPU) para importar palabras
 - [x] Un solo botón “Analizar y crear proyecto”: detecta y separa las 4 pistas, sin JSON externos
 - [ ] Empaquetar como .exe de Windows (Electron) con ffmpeg multipista y seguimiento YOLO — pendiente de confirmar la versión web
+
+- [ ] 2 pistas de subtítulos (arriba mi voz, abajo pistas 2 y 3)
+- [ ] Clic derecho: Editar/Eliminar en clips y subtítulos (encuadre de zoom / elegir plantilla)
+- [ ] Vegas: generador "Títulos y texto" no encontrado → buscarlo en cualquier idioma
+- [ ] Zoom inteligente: seguimiento del encuadre cada segundo
+- [ ] Recuperar en el código: pistas de audio con onda, audio 4 pistas, S en ratón, barra de carga, Mis configuraciones
