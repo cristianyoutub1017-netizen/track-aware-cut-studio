@@ -1,0 +1,7 @@
+[
+  {"capability":"code: voice cuts, dialogue zoom plan, vegas.cs generator","source":"src/core.js","outcome":"migrate","status":"done","next_action":"none"},
+  {"capability":"YOLO character tracking (onnx)","source":"src/models/yolov8n.onnx","outcome":"defer","status":"pending","next_action":"add in desktop (Electron) build"},
+  {"capability":"multi-track audio via ffmpeg/NVDEC","source":"electron/main.cjs","outcome":"replace with browser decode + per-track audio files","status":"done","next_action":"native ffmpeg in desktop build"},
+  {"capability":"settings persistence","source":"ajustes.json","outcome":"localStorage","status":"done","next_action":"none"},
+  {"capability":"schema/records/auth","source":"none","outcome":"not applicable","status":"verified","next_action":"none"}
+]
