@@ -8,7 +8,7 @@ export const DEFAULT_TRACK_COLORS: Record<TrackNo, string> = {
   4: "#ff8c00", // pista 4
 };
 export const DEFAULT_TRACK_ENABLED: Record<TrackNo, boolean> = { 1: true, 2: true, 3: true, 4: false };
-export const TRACK_NAMES: Record<TrackNo, string> = { 1: "Micrófono", 2: "Juego", 3: "Discord", 4: "Pista 4" };
+export const TRACK_NAMES: Record<TrackNo, string> = { 1: "Micrófono", 2: "Juego", 3: "Discord", 4: "Escritorio" };
 
 export const BUILT_IN_TEMPLATES: SubTemplate[] = [
   { id: "clasico", name: "Clásico abajo", font: "Impact", size: 7, useTrackColor: true, fill: "#ffffff", stroke: "#000000", strokeWidth: 8, position: "bottom", animation: "pop", uppercase: true, builtIn: true },

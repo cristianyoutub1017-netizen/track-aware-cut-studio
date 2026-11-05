@@ -142,3 +142,23 @@ export const fmt = (s: number) => {
   const r = s - m * 60;
   return `${m}:${r.toFixed(2).padStart(5, "0")}`;
 };
+
+/**
+ * Seguimiento del encuadre cada segundo: en cada segundo del clip mira quién habla
+ * (tú = centro, otro = algo a la derecha) y suaviza el movimiento entre puntos.
+ */
+export function followPath(seg: Segment, me: Range[], other: Range[], base: { cx: number; cy: number }) {
+  const talking = (rs: Range[], a: number, b: number) => rs.reduce((acc, [x, y]) => acc + Math.max(0, Math.min(b, y) - Math.max(a, x)), 0);
+  const len = seg.end - seg.start;
+  const pts: { t: number; cx: number; cy: number }[] = [];
+  let prev = base.cx;
+  for (let t = 0; t <= len + 1e-6; t += 1) {
+    const a = seg.start + t - 0.5, b = seg.start + t + 0.5;
+    const m = talking(me, a, b), o = talking(other, a, b);
+    const target = o > m + 0.05 ? 0.6 : m > o + 0.05 ? 0.5 : prev;
+    prev = prev + (target - prev) * 0.6;
+    pts.push({ t: +Math.min(t, len).toFixed(3), cx: +prev.toFixed(4), cy: base.cy });
+  }
+  if (pts.length && pts[pts.length - 1]!.t < len - 0.05) pts.push({ t: +len.toFixed(3), cx: prev, cy: base.cy });
+  return pts;
+}

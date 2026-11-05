@@ -14,6 +14,10 @@ export interface ZoomPlan {
   cx: number; // 0..1
   cy: number;
   who: "wide" | "me" | "other";
+  /** Encuadre ajustado a mano (clic derecho > Encuadrar): no se recalcula solo. */
+  manual?: boolean;
+  /** Seguimiento del encuadre: un punto por segundo (t relativo al inicio del clip). */
+  follow?: { t: number; cx: number; cy: number }[];
 }
 
 export interface Word {
@@ -121,3 +125,14 @@ export interface AnalysisFile {
   trackFiles?: Record<string, string>;
   words: Word[];
 }
+
+export interface Preset {
+  id: string;
+  name: string;
+  settings: Settings;
+  color: ColorGrade;
+  muted: Record<TrackNo, boolean>;
+}
+
+/** Carril de subtítulos: "voz" = pista 1 (tu micro), "otros" = pistas 2, 3 y 4. */
+export const subLane = (t: TrackNo): "voz" | "otros" => (t === 1 ? "voz" : "otros");
